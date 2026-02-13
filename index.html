@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EUR/USD Forecast Dashboard</title>
+<title>EUR/USD Forecast Dashboard (UTC)</title>
 <style>
     body {font-family: Arial; background:#111; color:white; margin:0; padding:10px; text-align:center;}
     #data {display:flex; flex-wrap:wrap; justify-content:center; gap:15px; margin-top:20px;}
@@ -17,7 +17,7 @@
 </head>
 <body>
 
-<h1>EUR/USD Forecast Dashboard</h1>
+<h1>EUR/USD Forecast Dashboard (UTC)</h1>
 <div id="data">Loading forecast...</div>
 <div id="error" class="error"></div>
 
@@ -34,26 +34,31 @@ function adjustTextColor(el,bg){
     el.style.color=(brightness<128)?'white':'black';
 }
 
+// Time since UTC timestamp
 function timeAgo(datetime){
-    const now=new Date(), past=new Date(datetime);
-    const diffSec=Math.floor((now-past)/1000);
-    const diffMin=Math.floor(diffSec/60);
-    const diffH=Math.floor(diffMin/60);
+    const now = new Date();
+    const past = new Date(datetime); // ISO UTC
+    const diffSec = Math.floor((now - past)/1000);
+    const diffMin = Math.floor(diffSec/60);
+    const diffH = Math.floor(diffMin/60);
     if(diffH>0) return `${diffH}h ${diffMin%60}m ago`;
     if(diffMin>0) return `${diffMin}m ${diffSec%60}s ago`;
     return `${diffSec}s ago`;
 }
 
+// Delay/tolerance since last candle (UTC)
 function calculateTolerance(candleTime){
-    const now=new Date(), candleDate=new Date(candleTime);
-    const diffSec=Math.floor((now-candleDate)/1000);
-    const diffMin=Math.floor(diffSec/60);
-    const diffH=Math.floor(diffMin/60);
+    const now = new Date();
+    const candleDate = new Date(candleTime);
+    const diffSec = Math.floor((now - candleDate)/1000);
+    const diffMin = Math.floor(diffSec/60);
+    const diffH = Math.floor(diffMin/60);
     if(diffH>0) return `${diffH}h ${diffMin%60}m`;
     if(diffMin>0) return `${diffMin}m ${diffSec%60}s`;
     return `${diffSec}s`;
 }
 
+// Fetch forecast JSON
 async function fetchForecast(){
     const dataDiv = document.getElementById("data");
     const errorDiv = document.getElementById("error");
@@ -95,6 +100,7 @@ async function fetchForecast(){
                         <p>Confidence: ${last.meter}</p>
                         <p class="timer" id="timer-${tf}">Updated: 0s ago</p>
                         <p>Delay: <span class="tolerance" id="tolerance-${tf}">0s</span></p>
+                        <p>Forecast UTC: ${last.forecast_time}</p>
                      </div>`;
         });
 
