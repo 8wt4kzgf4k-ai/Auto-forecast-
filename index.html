@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>EUR/USD Forecast</title>
+<style>
+body { font-family: Arial; background:#111; color:white; text-align:center; }
+.card { border:1px solid #444; margin:10px; padding:10px; }
+</style>
+</head>
+<body>
+<h1>EUR/USD Forecast</h1>
+<div id="data"></div>
+
+<script>
+async function loadForecast(){
+  const res = await fetch("forecast.json");
+  const data = await res.json();
+  let html = "";
+  for(const tf in data){
+    const last = data[tf][data[tf].length-1];
+    if(!last) continue;
+    html += `<div class="card">
+      <h2>${tf}</h2>
+      <p>Price: ${last.price}</p>
+      <p>Signal: ${last.signal}</p>
+      <p>Confidence: ${last.meter}</p>
+    </div>`;
+  }
+  document.getElementById("data").innerHTML = html;
+}
+setInterval(loadForecast, 60000);
+loadForecast();
+</script>
+</body>
+</html>
