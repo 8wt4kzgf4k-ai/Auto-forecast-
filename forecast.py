@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import requests
 
@@ -18,9 +18,7 @@ FORECAST_FILE = "forecast.json"
 # Helper functions
 # ----------------------------
 def get_last_candle_close(tf):
-    """
-    Fetch last closed candle from Twelve Data
-    """
+    """Fetch last closed candle from Twelve Data"""
     params = {
         "symbol": SYMBOL,
         "interval": tf,
@@ -39,9 +37,7 @@ def get_last_candle_close(tf):
         return None
 
 def last_candle_close_time(tf):
-    """
-    Return timestamp of last closed candle
-    """
+    """Return UTC timestamp of last closed candle"""
     params = {
         "symbol": SYMBOL,
         "interval": tf,
@@ -52,18 +48,22 @@ def last_candle_close_time(tf):
         r = requests.get(BASE_URL, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-        return data["values"][0]["datetime"]
+        # Convert to UTC ISO format
+        dt_str = data["values"][0]["datetime"]
+        dt_obj = datetime.fromisoformat(dt_str)
+        return dt_obj.astimezone(timezone.utc).isoformat()
     except Exception as e:
         print(f"Error fetching candle time {tf}: {e}")
-        return datetime.utcnow().isoformat()
+        # fallback to current UTC time
+        return datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
 
 def calculate_predicted_price(tf, last_close):
     """
-    Example prediction: simple +0.001 or -0.001 based on random trend
+    Example prediction: simple +/- 0.001
     Replace with your ML or indicator logic
     """
     import random
-    return round(last_close + random.choice([-0.001,0,0.001]), 5)
+    return round(last_close + random.choice([-0.001, 0, 0.001]), 5)
 
 # ----------------------------
 # Main Loop
@@ -91,7 +91,7 @@ while True:
         last_tf_data = forecast_data.get(tf, [])
         last_signal_data = last_tf_data[-1] if last_tf_data else None
         candle_time = last_candle_close_time(tf)
-        forecast_time = datetime.utcnow().isoformat()
+        forecast_time = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
 
         # Only update if new forecast differs
         if (not last_signal_data or 
@@ -104,18 +104,19 @@ while True:
                 "predicted_price": predicted,
                 "confidence": 3,
                 "meter": "|||",
-                "candle_time": candle_time,
-                "forecast_time": forecast_time
+                "candle_time": candle_time,   # UTC timestamp of candle
+                "forecast_time": forecast_time # UTC timestamp of forecast generation
             }
 
             forecast_data.setdefault(tf, []).append(entry)
+            # Limit history
             forecast_data[tf] = forecast_data[tf][-HISTORY_LIMIT:]
 
     # Save updated forecast
     with open(FORECAST_FILE,"w") as f:
-        json.dump(forecast_data, f, indent=4)
+        json.dump(forecast_data,f,indent=4)
 
-    print(f"[{datetime.utcnow().isoformat()}] Forecast updated.")
+    print(f"[{datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()}] Forecast updated.")
 
     # Wait 1 minute
     time.sleep(60)
