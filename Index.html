@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EUR/USD Live Forecast Dashboard</title>
+<style>
+body { font-family: Arial; margin:20px; background:#f4f4f4;}
+h1 { text-align:center; }
+h2 { margin-top:40px; }
+table { border-collapse: collapse; width:100%; margin-bottom:30px; background:#fff;}
+th, td { border:1px solid #ddd; padding:8px; text-align:center;}
+th { background:#4CAF50; color:white;}
+.Buy { color:green; font-weight:bold;}
+.Sell { color:red; font-weight:bold;}
+.meter { font-family: monospace;}
+</style>
+</head>
+<body>
+<h1>EUR/USD Live Forecast Dashboard</h1>
+<div id="dashboard"></div>
+<script>
+const timeframes = ["1M","3M","5M","15M","30M","1H"];
+const dashboard = document.getElementById("dashboard");
+
+async function loadForecast() {
+    try {
+        const response = await fetch("forecast.json?t=" + new Date().getTime());
+        const forecastData = await response.json();
+        dashboard.innerHTML = "";
+
+        timeframes.forEach(tf => {
+            const data = forecastData[tf];
+            const heading = document.createElement("h2");
+            heading.textContent = `EUR/USD Forecast - ${tf}`;
+            dashboard.appendChild(heading);
+
+            const table = document.createElement("table");
+            table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Date</th><th>Close</th><th>Signal</th><th>Confidence</th><th>Meter</th>
+                </tr>
+            </thead>
+            <tbody>
+            ${data.map(row => `
+                <tr>
+                    <td>${row.Date}</td>
+                    <td>${row.Close.toFixed(5)}</td>
+                    <td class="${row.Signal}">${row.Signal}</td>
+                    <td>${row.Confidence}/3</td>
+                    <td class="meter">${row.Meter}</td>
+                </tr>`).join('')}
+            </tbody>`;
+            dashboard.appendChild(table);
+        });
+    } catch (error) {
+        console.error("Error fetching forecast:", error);
+    }
+}
+
+loadForecast();
+setInterval(loadForecast, 60000);
+</script>
+</body>
+</html>
