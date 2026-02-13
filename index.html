@@ -15,12 +15,13 @@
             margin: 10px; 
             padding: 10px; 
             display: inline-block; 
-            width: 180px; 
+            width: 200px; 
             border-radius: 5px;
             transition: background 0.5s, color 0.5s;
         }
         .error { color: red; margin-top: 20px; }
         .warning { color: yellow; margin-top: 10px; }
+        .trend { font-size: 1.5em; }
     </style>
 </head>
 <body>
@@ -31,11 +32,9 @@
     <script>
         // Auto-adjust text color based on background brightness
         function adjustTextColor(el, bgColor) {
-            // Convert #rrggbb to RGB
             const r = parseInt(bgColor.substr(1,2),16);
             const g = parseInt(bgColor.substr(3,2),16);
             const b = parseInt(bgColor.substr(5,2),16);
-            // Perceived brightness formula
             const brightness = (r*299 + g*587 + b*114)/1000;
             el.style.color = (brightness < 128) ? 'white' : 'black';
         }
@@ -50,25 +49,35 @@
                 if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
                 const data = await res.json();
 
-                const TIMEFRAMES = ["1M", "3M", "5M", "15M", "30M", "1H"];
+                const TIMEFRAMES = ["1min","3min","5min","15min","30min","1h"];
                 let html = "";
                 let missingFrames = [];
 
                 for (const tf of TIMEFRAMES) {
-                    const cardColor = data[tf] && data[tf].length ? "#2a8f2a" : "#ffb200"; // green if present, yellow if missing
-                    if (!data[tf] || data[tf].length === 0) {
+                    const tfData = data[tf];
+                    if (!tfData || tfData.length === 0) {
                         missingFrames.push(tf);
-                        html += `<div class="card" style="background:${cardColor}"> 
+                        html += `<div class="card" style="background:#ffb200">
                                     <h2>${tf}</h2>
                                     <p>Data missing</p>
                                  </div>`;
                         continue;
                     }
-                    const last = data[tf][data[tf].length - 1];
+
+                    const last = tfData[tfData.length - 1];
+
+                    // Determine trend arrow
+                    const trendArrow = last.signal === "Buy" ? "📈" : "📉";
+
+                    // Card color based on confidence
+                    const cardColor = last.confidence === 3 ? "#2a8f2a" :
+                                      last.confidence === 2 ? "#f0a500" :
+                                      "#d42a2a";
+
                     html += `<div class="card" style="background:${cardColor}">
                                 <h2>${tf}</h2>
                                 <p>Price: ${last.price}</p>
-                                <p>Signal: ${last.signal}</p>
+                                <p>Signal: <span class="trend">${trendArrow} ${last.signal}</span></p>
                                 <p>Confidence: ${last.meter}</p>
                              </div>`;
                 }
@@ -77,8 +86,7 @@
 
                 // Adjust text color for readability
                 document.querySelectorAll('.card').forEach(card => {
-                    const bg = card.style.background;
-                    adjustTextColor(card, bg);
+                    adjustTextColor(card, card.style.background);
                 });
 
                 if (missingFrames.length > 0) {
