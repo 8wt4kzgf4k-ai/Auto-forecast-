@@ -1,119 +1,121 @@
-import requests
 import json
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
+import requests
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-API_KEY = "b3f898dec7014a23aeddd60f2cb30fc6"
-PAIR = "EUR/USD"
-TIMEFRAMES = ["1min","3min","5min","15min","30min","1h"]
-MAX_HISTORY = 300
-JSON_FILE = "forecast.json"
+# ----------------------------
+# API CONFIGURATION
+# ----------------------------
+API_KEY = "b3f898dec7014a23aeddd60f2cb30fc6"  # <-- Add your API key here
+BASE_URL = "https://api.twelvedata.com/time_series"
+SYMBOL = "EUR/USD"
 
-# -----------------------------
-def fetch_candles(tf):
-    url = f"https://api.twelvedata.com/time_series?symbol={PAIR}&interval={tf}&outputsize=100&apikey={API_KEY}"
-    r = requests.get(url)
-    if r.status_code != 200:
-        raise Exception(f"HTTP {r.status_code} error for {tf}")
-    data = r.json()
-    if "values" not in data:
-        raise Exception(f"No values returned for {tf}: {data}")
-    # newest last
-    candles = list(reversed(data["values"]))
-    return candles
+TIMEFRAMES = ["1min", "3min", "5min", "15min", "30min", "1h"]
+HISTORY_LIMIT = 100
+FORECAST_FILE = "forecast.json"
 
-# -----------------------------
-def fetch_indicator(indicator, tf):
-    url = f"https://api.twelvedata.com/{indicator}?symbol={PAIR}&interval={tf}&apikey={API_KEY}&outputsize=100"
-    r = requests.get(url)
-    if r.status_code != 200:
-        raise Exception(f"HTTP {r.status_code} error for {indicator} {tf}")
-    data = r.json()
-    if "values" not in data:
-        raise Exception(f"No values returned for {indicator} {tf}: {data}")
-    return list(reversed(data["values"]))
+# ----------------------------
+# Helper functions
+# ----------------------------
+def get_last_candle_close(tf):
+    """
+    Fetch last closed candle from Twelve Data
+    """
+    params = {
+        "symbol": SYMBOL,
+        "interval": tf,
+        "outputsize": 1,
+        "apikey": API_KEY
+    }
+    try:
+        r = requests.get(BASE_URL, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        # Twelve Data returns "values" list
+        last_close = float(data["values"][0]["close"])
+        return last_close
+    except Exception as e:
+        print(f"Error fetching {tf}: {e}")
+        return None
 
-# -----------------------------
-def load_history():
-    if os.path.exists(JSON_FILE):
-        try:
-            with open(JSON_FILE,"r") as f:
-                return json.load(f)
-        except:
-            return {tf: [] for tf in TIMEFRAMES}
-    return {tf: [] for tf in TIMEFRAMES}
+def last_candle_close_time(tf):
+    """
+    Return timestamp of last closed candle
+    """
+    params = {
+        "symbol": SYMBOL,
+        "interval": tf,
+        "outputsize": 1,
+        "apikey": API_KEY
+    }
+    try:
+        r = requests.get(BASE_URL, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data["values"][0]["datetime"]
+    except Exception as e:
+        print(f"Error fetching candle time {tf}: {e}")
+        return datetime.utcnow().isoformat()
 
-def save_history(data):
-    with open(JSON_FILE,"w") as f:
-        json.dump(data, f, indent=2)
+def calculate_predicted_price(tf, last_close):
+    """
+    Example prediction: simple +0.001 or -0.001 based on random trend
+    Replace with your ML or indicator logic
+    """
+    import random
+    return round(last_close + random.choice([-0.001,0,0.001]), 5)
 
-# -----------------------------
-def confidence_meter(signal, last_return, rsi):
-    confidence = 0
-    if (signal=="Buy" and last_return>0) or (signal=="Sell" and last_return<0):
-        confidence += 1
-    if rsi:
-        if (signal=="Buy" and float(rsi)<70) or (signal=="Sell" and float(rsi)>30):
-            confidence += 1
-    meter = "".join(["█" if i<confidence else "░" for i in range(3)])
-    return confidence, meter
-
-# -----------------------------
-def generate_forecast():
-    history = load_history()
+# ----------------------------
+# Main Loop
+# ----------------------------
+while True:
+    try:
+        with open(FORECAST_FILE,"r") as f:
+            forecast_data = json.load(f)
+    except:
+        forecast_data = {}
 
     for tf in TIMEFRAMES:
-        try:
-            candles = fetch_candles(tf)
-            if len(candles)<2:
-                continue
+        last_close = get_last_candle_close(tf)
+        if last_close is None:
+            continue  # skip if API failed
+        predicted = calculate_predicted_price(tf, last_close)
 
-            # last candle data
-            last = candles[-1]
-            prev = candles[-2]
+        if predicted > last_close:
+            signal = "Buy"
+        elif predicted < last_close:
+            signal = "Sell"
+        else:
+            signal = "Hold"
 
-            close_price = float(last["close"])
-            last_return = float(last["close"])/float(prev["close"])-1
+        last_tf_data = forecast_data.get(tf, [])
+        last_signal_data = last_tf_data[-1] if last_tf_data else None
+        candle_time = last_candle_close_time(tf)
+        forecast_time = datetime.utcnow().isoformat()
 
-            # Simple signal example
-            signal = "Buy" if last_return>0 else "Sell"
-
-            # Fetch RSI for confidence (optional, free tier limits!)
-            try:
-                rsi_data = fetch_indicator("rsi", tf)
-                rsi_value = float(rsi_data[-1]["rsi"])
-            except:
-                rsi_value = None
-
-            confidence, meter = confidence_meter(signal, last_return, rsi_value)
+        # Only update if new forecast differs
+        if (not last_signal_data or 
+            last_signal_data["signal"] != signal or 
+            last_signal_data["predicted_price"] != predicted):
 
             entry = {
-                "time": last["datetime"],
-                "price": round(close_price,5),
                 "signal": signal,
-                "confidence": confidence,
-                "meter": meter
+                "price": last_close,
+                "predicted_price": predicted,
+                "confidence": 3,
+                "meter": "|||",
+                "candle_time": candle_time,
+                "forecast_time": forecast_time
             }
 
-            # Append to history
-            if tf not in history:
-                history[tf] = []
-            history[tf].append(entry)
-            history[tf] = history[tf][-MAX_HISTORY:]
+            forecast_data.setdefault(tf, []).append(entry)
+            forecast_data[tf] = forecast_data[tf][-HISTORY_LIMIT:]
 
-            # Respect 8 calls/min free tier
-            time.sleep(8)  # 1 call every 8 seconds max = ~7-8 calls per min
+    # Save updated forecast
+    with open(FORECAST_FILE,"w") as f:
+        json.dump(forecast_data, f, indent=4)
 
-        except Exception as e:
-            print(f"Error for {tf}: {e}")
+    print(f"[{datetime.utcnow().isoformat()}] Forecast updated.")
 
-    save_history(history)
-    print("forecast.json updated")
-
-# -----------------------------
-if __name__ == "__main__":
-    generate_forecast()
+    # Wait 1 minute
+    time.sleep(60)
