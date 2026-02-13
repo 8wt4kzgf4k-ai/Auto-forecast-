@@ -15,13 +15,14 @@
             margin: 10px; 
             padding: 10px; 
             display: inline-block; 
-            width: 200px; 
+            width: 220px; 
             border-radius: 5px;
             transition: background 0.5s, color 0.5s;
         }
         .error { color: red; margin-top: 20px; }
         .warning { color: yellow; margin-top: 10px; }
         .trend { font-size: 1.5em; }
+        .timer { font-size: 0.9em; margin-top: 5px; color: #ccc; }
     </style>
 </head>
 <body>
@@ -30,13 +31,25 @@
     <div id="error" class="error"></div>
 
     <script>
-        // Auto-adjust text color based on background brightness
         function adjustTextColor(el, bgColor) {
             const r = parseInt(bgColor.substr(1,2),16);
             const g = parseInt(bgColor.substr(3,2),16);
             const b = parseInt(bgColor.substr(5,2),16);
             const brightness = (r*299 + g*587 + b*114)/1000;
             el.style.color = (brightness < 128) ? 'white' : 'black';
+        }
+
+        function timeAgo(datetime) {
+            const now = new Date();
+            const past = new Date(datetime);
+            const diffMs = now - past;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffH = Math.floor(diffMin / 60);
+
+            if (diffH > 0) return `${diffH}h ${diffMin % 60}m ago`;
+            if (diffMin > 0) return `${diffMin}m ${diffSec % 60}s ago`;
+            return `${diffSec}s ago`;
         }
 
         async function loadForecast() {
@@ -65,11 +78,7 @@
                     }
 
                     const last = tfData[tfData.length - 1];
-
-                    // Determine trend arrow
                     const trendArrow = last.signal === "Buy" ? "📈" : "📉";
-
-                    // Card color based on confidence
                     const cardColor = last.confidence === 3 ? "#2a8f2a" :
                                       last.confidence === 2 ? "#f0a500" :
                                       "#d42a2a";
@@ -79,6 +88,7 @@
                                 <p>Price: ${last.price}</p>
                                 <p>Signal: <span class="trend">${trendArrow} ${last.signal}</span></p>
                                 <p>Confidence: ${last.meter}</p>
+                                <p class="timer">Updated: ${timeAgo(last.time)}</p>
                              </div>`;
                 }
 
@@ -100,7 +110,8 @@
             }
         }
 
-        setInterval(loadForecast, 60000); // refresh every 60 seconds
+        // Refresh dashboard and update timers every second
+        setInterval(loadForecast, 1000); // updates timers live
         loadForecast();
     </script>
 </body>
