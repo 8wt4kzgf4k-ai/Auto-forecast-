@@ -1,79 +1,119 @@
-import yfinance as yf
-import pandas as pd
-from datetime import datetime, timedelta
+import requests
 import json
 import os
+from datetime import datetime, timedelta
+import time
 
-PAIR = "EURUSD=X"
-TIMEFRAMES = ["1M", "3M", "5M", "15M", "30M", "1H"]
+# -----------------------------
+# CONFIG
+# -----------------------------
+API_KEY = "b3f898dec7014a23aeddd60f2cb30fc6"
+PAIR = "EUR/USD"
+TIMEFRAMES = ["1min","3min","5min","15min","30min","1h"]
 MAX_HISTORY = 300
-FILE = "forecast.json"
+JSON_FILE = "forecast.json"
 
-def fetch_data():
-    df = yf.download(
-        PAIR,
-        start=datetime.now() - timedelta(hours=2),
-        interval="1m",
-        progress=False
-    )
-    df.reset_index(inplace=True)
-    return df
+# -----------------------------
+def fetch_candles(tf):
+    url = f"https://api.twelvedata.com/time_series?symbol={PAIR}&interval={tf}&outputsize=100&apikey={API_KEY}"
+    r = requests.get(url)
+    if r.status_code != 200:
+        raise Exception(f"HTTP {r.status_code} error for {tf}")
+    data = r.json()
+    if "values" not in data:
+        raise Exception(f"No values returned for {tf}: {data}")
+    # newest last
+    candles = list(reversed(data["values"]))
+    return candles
 
-def resample(df, tf):
-    tf_map = {"1M":"1T","3M":"3T","5M":"5T","15M":"15T","30M":"30T","1H":"1H"}
-    r = df.resample(tf_map[tf], on="Datetime").agg({
-        "Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"
-    }).dropna()
-    r["Return"] = r["Close"].pct_change()
-    return r.reset_index()
+# -----------------------------
+def fetch_indicator(indicator, tf):
+    url = f"https://api.twelvedata.com/{indicator}?symbol={PAIR}&interval={tf}&apikey={API_KEY}&outputsize=100"
+    r = requests.get(url)
+    if r.status_code != 200:
+        raise Exception(f"HTTP {r.status_code} error for {indicator} {tf}")
+    data = r.json()
+    if "values" not in data:
+        raise Exception(f"No values returned for {indicator} {tf}: {data}")
+    return list(reversed(data["values"]))
 
-def confidence(signal, ret):
-    bars = 0
-    if (signal=="Buy" and ret>0) or (signal=="Sell" and ret<0):
-        bars += 1
-    if abs(ret) > 0.0001:
-        bars += 1
-    if abs(ret) > 0.0002:
-        bars += 1
-    meter = "".join(["█" if i < bars else "░" for i in range(3)])
-    return bars, meter
+# -----------------------------
+def load_history():
+    if os.path.exists(JSON_FILE):
+        try:
+            with open(JSON_FILE,"r") as f:
+                return json.load(f)
+        except:
+            return {tf: [] for tf in TIMEFRAMES}
+    return {tf: [] for tf in TIMEFRAMES}
 
-def load():
-    if os.path.exists(FILE):
-        with open(FILE,"r") as f:
-            return json.load(f)
-    return {tf:[] for tf in TIMEFRAMES}
+def save_history(data):
+    with open(JSON_FILE,"w") as f:
+        json.dump(data, f, indent=2)
 
-def save(data):
-    with open(FILE,"w") as f:
-        json.dump(data,f,indent=2)
+# -----------------------------
+def confidence_meter(signal, last_return, rsi):
+    confidence = 0
+    if (signal=="Buy" and last_return>0) or (signal=="Sell" and last_return<0):
+        confidence += 1
+    if rsi:
+        if (signal=="Buy" and float(rsi)<70) or (signal=="Sell" and float(rsi)>30):
+            confidence += 1
+    meter = "".join(["█" if i<confidence else "░" for i in range(3)])
+    return confidence, meter
 
-def run():
-    df = fetch_data()
-    hist = load()
+# -----------------------------
+def generate_forecast():
+    history = load_history()
 
     for tf in TIMEFRAMES:
-        r = resample(df, tf)
-        if len(r) < 2: continue
-        last = r.iloc[-1]
-        prev = r.iloc[-2]
+        try:
+            candles = fetch_candles(tf)
+            if len(candles)<2:
+                continue
 
-        signal = "Buy" if last["Return"] > 0 else "Sell"
-        conf, meter = confidence(signal, prev["Return"])
+            # last candle data
+            last = candles[-1]
+            prev = candles[-2]
 
-        entry = {
-            "time": last["Datetime"].strftime("%Y-%m-%d %H:%M"),
-            "price": round(float(last["Close"]),5),
-            "signal": signal,
-            "confidence": conf,
-            "meter": meter
-        }
+            close_price = float(last["close"])
+            last_return = float(last["close"])/float(prev["close"])-1
 
-        hist[tf].append(entry)
-        hist[tf] = hist[tf][-MAX_HISTORY:]
+            # Simple signal example
+            signal = "Buy" if last_return>0 else "Sell"
 
-    save(hist)
+            # Fetch RSI for confidence (optional, free tier limits!)
+            try:
+                rsi_data = fetch_indicator("rsi", tf)
+                rsi_value = float(rsi_data[-1]["rsi"])
+            except:
+                rsi_value = None
+
+            confidence, meter = confidence_meter(signal, last_return, rsi_value)
+
+            entry = {
+                "time": last["datetime"],
+                "price": round(close_price,5),
+                "signal": signal,
+                "confidence": confidence,
+                "meter": meter
+            }
+
+            # Append to history
+            if tf not in history:
+                history[tf] = []
+            history[tf].append(entry)
+            history[tf] = history[tf][-MAX_HISTORY:]
+
+            # Respect 8 calls/min free tier
+            time.sleep(8)  # 1 call every 8 seconds max = ~7-8 calls per min
+
+        except Exception as e:
+            print(f"Error for {tf}: {e}")
+
+    save_history(history)
     print("forecast.json updated")
 
+# -----------------------------
 if __name__ == "__main__":
-    run()
+    generate_forecast()
