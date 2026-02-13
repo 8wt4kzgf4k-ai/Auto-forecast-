@@ -1,35 +1,99 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>EUR/USD Forecast</title>
-<style>
-body { font-family: Arial; background:#111; color:white; text-align:center; }
-.card { border:1px solid #444; margin:10px; padding:10px; }
-</style>
+    <title>EUR/USD Forecast Dashboard</title>
+    <style>
+        body { 
+            font-family: Arial; 
+            background: #111; 
+            color: white; 
+            text-align: center; 
+            transition: background 0.5s, color 0.5s;
+        }
+        .card { 
+            border: 1px solid #444; 
+            margin: 10px; 
+            padding: 10px; 
+            display: inline-block; 
+            width: 180px; 
+            border-radius: 5px;
+            transition: background 0.5s, color 0.5s;
+        }
+        .error { color: red; margin-top: 20px; }
+        .warning { color: yellow; margin-top: 10px; }
+    </style>
 </head>
 <body>
-<h1>EUR/USD Forecast</h1>
-<div id="data"></div>
+    <h1>EUR/USD Forecast Dashboard</h1>
+    <div id="data">Loading forecast...</div>
+    <div id="error" class="error"></div>
 
-<script>
-async function loadForecast(){
-  const res = await fetch("forecast.json");
-  const data = await res.json();
-  let html = "";
-  for(const tf in data){
-    const last = data[tf][data[tf].length-1];
-    if(!last) continue;
-    html += `<div class="card">
-      <h2>${tf}</h2>
-      <p>Price: ${last.price}</p>
-      <p>Signal: ${last.signal}</p>
-      <p>Confidence: ${last.meter}</p>
-    </div>`;
-  }
-  document.getElementById("data").innerHTML = html;
-}
-setInterval(loadForecast, 60000);
-loadForecast();
-</script>
+    <script>
+        // Auto-adjust text color based on background brightness
+        function adjustTextColor(el, bgColor) {
+            // Convert #rrggbb to RGB
+            const r = parseInt(bgColor.substr(1,2),16);
+            const g = parseInt(bgColor.substr(3,2),16);
+            const b = parseInt(bgColor.substr(5,2),16);
+            // Perceived brightness formula
+            const brightness = (r*299 + g*587 + b*114)/1000;
+            el.style.color = (brightness < 128) ? 'white' : 'black';
+        }
+
+        async function loadForecast() {
+            const dataDiv = document.getElementById("data");
+            const errorDiv = document.getElementById("error");
+            errorDiv.innerText = "";
+            dataDiv.innerHTML = "Loading forecast...";
+            try {
+                const res = await fetch("/forecast.json?t=" + new Date().getTime());
+                if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+                const data = await res.json();
+
+                const TIMEFRAMES = ["1M", "3M", "5M", "15M", "30M", "1H"];
+                let html = "";
+                let missingFrames = [];
+
+                for (const tf of TIMEFRAMES) {
+                    const cardColor = data[tf] && data[tf].length ? "#2a8f2a" : "#ffb200"; // green if present, yellow if missing
+                    if (!data[tf] || data[tf].length === 0) {
+                        missingFrames.push(tf);
+                        html += `<div class="card" style="background:${cardColor}"> 
+                                    <h2>${tf}</h2>
+                                    <p>Data missing</p>
+                                 </div>`;
+                        continue;
+                    }
+                    const last = data[tf][data[tf].length - 1];
+                    html += `<div class="card" style="background:${cardColor}">
+                                <h2>${tf}</h2>
+                                <p>Price: ${last.price}</p>
+                                <p>Signal: ${last.signal}</p>
+                                <p>Confidence: ${last.meter}</p>
+                             </div>`;
+                }
+
+                dataDiv.innerHTML = html;
+
+                // Adjust text color for readability
+                document.querySelectorAll('.card').forEach(card => {
+                    const bg = card.style.background;
+                    adjustTextColor(card, bg);
+                });
+
+                if (missingFrames.length > 0) {
+                    errorDiv.innerHTML = `<p class="warning">Missing forecast data for: ${missingFrames.join(", ")}</p>`;
+                }
+
+            } catch (err) {
+                dataDiv.innerHTML = "<p>Unable to load forecast data.</p>";
+                errorDiv.innerText = "Fetch Error: " + err.message;
+                console.error(err);
+            }
+        }
+
+        setInterval(loadForecast, 60000); // refresh every 60 seconds
+        loadForecast();
+    </script>
 </body>
 </html>
