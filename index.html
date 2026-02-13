@@ -44,6 +44,7 @@
     <script>
         const TIMEFRAMES = ["1min","3min","5min","15min","30min","1h"];
         let forecastData = {};
+        let lastFetchTime = null;  // Store timestamp of last forecast fetch
 
         function adjustTextColor(el, bgColor) {
             const r = parseInt(bgColor.substr(1,2),16);
@@ -74,6 +75,7 @@
                 const res = await fetch("/forecast.json?t=" + new Date().getTime());
                 if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
                 forecastData = await res.json();
+                lastFetchTime = new Date(); // Update fetch timestamp
 
                 let html = "";
                 let missingFrames = [];
@@ -85,7 +87,7 @@
                         html += `<div class="card" id="card-${tf}" style="background:#ffb200">
                                     <h2>${tf}</h2>
                                     <p>Data missing</p>
-                                    <p class="timer">Updated: N/A</p>
+                                    <p class="timer" id="timer-${tf}">Updated: N/A</p>
                                  </div>`;
                         continue;
                     }
@@ -101,7 +103,7 @@
                                 <p>Price: ${last.price}</p>
                                 <p>Signal: <span class="trend">${trendArrow} ${last.signal}</span></p>
                                 <p>Confidence: ${last.meter}</p>
-                                <p class="timer" id="timer-${tf}">Updated: ${timeAgo(last.time)}</p>
+                                <p class="timer" id="timer-${tf}">Updated: 0s ago</p>
                              </div>`;
                 }
 
@@ -123,20 +125,29 @@
         }
 
         function updateTimers() {
-            for (const tf of TIMEFRAMES) {
-                const tfData = forecastData[tf];
-                if (!tfData || tfData.length === 0) continue;
-                const last = tfData[tfData.length - 1];
+            if (!lastFetchTime) return;
+            const now = new Date();
+            const diffMs = now - lastFetchTime;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffH = Math.floor(diffMin / 60);
+
+            let timeText;
+            if (diffH > 0) timeText = `${diffH}h ${diffMin % 60}m ago`;
+            else if (diffMin > 0) timeText = `${diffMin}m ${diffSec % 60}s ago`;
+            else timeText = `${diffSec}s ago`;
+
+            TIMEFRAMES.forEach(tf => {
                 const timerEl = document.getElementById(`timer-${tf}`);
-                if (timerEl) timerEl.innerText = `Updated: ${timeAgo(last.time)}`;
-            }
+                if (timerEl) timerEl.innerText = `Updated: ${timeText}`;
+            });
         }
 
         // Initial fetch
         fetchForecast();
-        // Full data fetch every 60s
-        setInterval(fetchForecast, 60000);
-        // Timer updates every 10s
+        // Full forecast fetch every 3 minutes
+        setInterval(fetchForecast, 180000);
+        // Timers update every 10 seconds
         setInterval(updateTimers, 10000);
     </script>
 </body>
