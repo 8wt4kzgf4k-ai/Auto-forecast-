@@ -1,154 +1,138 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>EUR/USD Forecast Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { 
-            font-family: Arial; 
-            background: #111; 
-            color: white; 
-            text-align: center; 
-            margin: 0; 
-            padding: 10px;
-        }
-        #data {
-            display: flex;               
-            flex-wrap: wrap;             
-            justify-content: center;     
-            gap: 15px;                   
-            margin-top: 20px;
-        }
-        .card { 
-            border: 2px solid #444;      
-            padding: 15px;                
-            width: 220px; 
-            border-radius: 8px;           
-            transition: background 0.5s, color 0.5s;
-            box-shadow: 0 0 10px #000;   
-        }
-        .error { color: red; margin-top: 20px; }
-        .warning { color: yellow; margin-top: 10px; }
-        .trend { font-size: 1.5em; }
-        .timer { font-size: 0.9em; margin-top: 5px; color: #ccc; }
-        @media screen and (max-width: 480px) {
-            .card { width: 90%; } /* responsive for iPhone */
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EUR/USD Forecast Dashboard</title>
+<style>
+    body {font-family: Arial; background:#111; color:white; margin:0; padding:10px; text-align:center;}
+    #data {display:flex; flex-wrap:wrap; justify-content:center; gap:15px; margin-top:20px;}
+    .card {border:2px solid #444; border-radius:8px; padding:15px; width:220px; box-shadow:0 0 10px #000; transition: background 0.5s,color 0.5s;}
+    .trend {font-size:1.5em;}
+    .timer {font-size:0.9em; color:#ccc; margin-top:5px;}
+    .warning {color:yellow; margin-top:10px;}
+    .error {color:red; margin-top:20px;}
+    @media screen and (max-width:480px) {.card{width:90%;}}
+</style>
 </head>
 <body>
-    <h1>EUR/USD Forecast Dashboard</h1>
-    <div id="data">Loading forecast...</div>
-    <div id="error" class="error"></div>
 
-    <script>
-        const TIMEFRAMES = ["1min","3min","5min","15min","30min","1h"];
-        let forecastData = {};
-        let lastFetchTime = null;  // Store timestamp of last forecast fetch
+<h1>EUR/USD Forecast Dashboard</h1>
+<div id="data">Loading forecast...</div>
+<div id="error" class="error"></div>
 
-        function adjustTextColor(el, bgColor) {
-            const r = parseInt(bgColor.substr(1,2),16);
-            const g = parseInt(bgColor.substr(3,2),16);
-            const b = parseInt(bgColor.substr(5,2),16);
-            const brightness = (r*299 + g*587 + b*114)/1000;
-            el.style.color = (brightness < 128) ? 'white' : 'black';
-        }
+<script>
+const TIMEFRAMES = ["1min","3min","5min","15min","30min","1h"];
+let forecastData = {};
+let prevSignals = {}; // To detect new signals
 
-        function timeAgo(datetime) {
-            const now = new Date();
-            const past = new Date(datetime);
-            const diffMs = now - past;
-            const diffSec = Math.floor(diffMs / 1000);
-            const diffMin = Math.floor(diffSec / 60);
-            const diffH = Math.floor(diffMin / 60);
+function adjustTextColor(el,bg){
+    const r=parseInt(bg.substr(1,2),16);
+    const g=parseInt(bg.substr(3,2),16);
+    const b=parseInt(bg.substr(5,2),16);
+    const brightness=(r*299+g*587+b*114)/1000;
+    el.style.color=(brightness<128)?'white':'black';
+}
 
-            if (diffH > 0) return `${diffH}h ${diffMin % 60}m ago`;
-            if (diffMin > 0) return `${diffMin}m ${diffSec % 60}s ago`;
-            return `${diffSec}s ago`;
-        }
+function timeAgo(datetime){
+    const now=new Date(), past=new Date(datetime);
+    const diffSec=Math.floor((now-past)/1000);
+    const diffMin=Math.floor(diffSec/60);
+    const diffH=Math.floor(diffMin/60);
+    if(diffH>0) return `${diffH}h ${diffMin%60}m ago`;
+    if(diffMin>0) return `${diffMin}m ${diffSec%60}s ago`;
+    return `${diffSec}s ago`;
+}
 
-        async function fetchForecast() {
-            const dataDiv = document.getElementById("data");
-            const errorDiv = document.getElementById("error");
-            errorDiv.innerText = "";
-            try {
-                const res = await fetch("/forecast.json?t=" + new Date().getTime());
-                if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
-                forecastData = await res.json();
-                lastFetchTime = new Date(); // Update fetch timestamp
+function calculateTolerance(candleTime){
+    const now=new Date(), candleDate=new Date(candleTime);
+    const diffSec=Math.floor((now-candleDate)/1000);
+    const diffMin=Math.floor(diffSec/60);
+    const diffH=Math.floor(diffMin/60);
+    if(diffH>0) return `${diffH}h ${diffMin%60}m`;
+    if(diffMin>0) return `${diffMin}m ${diffSec%60}s`;
+    return `${diffSec}s`;
+}
 
-                let html = "";
-                let missingFrames = [];
+async function fetchForecast(){
+    const dataDiv = document.getElementById("data");
+    const errorDiv = document.getElementById("error");
+    errorDiv.innerText = "";
 
-                for (const tf of TIMEFRAMES) {
-                    const tfData = forecastData[tf];
-                    if (!tfData || tfData.length === 0) {
-                        missingFrames.push(tf);
-                        html += `<div class="card" id="card-${tf}" style="background:#ffb200">
-                                    <h2>${tf}</h2>
-                                    <p>Data missing</p>
-                                    <p class="timer" id="timer-${tf}">Updated: N/A</p>
-                                 </div>`;
-                        continue;
-                    }
+    try{
+        const res = await fetch("/forecast.json?t="+new Date().getTime());
+        if(!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+        forecastData = await res.json();
 
-                    const last = tfData[tfData.length - 1];
-                    const trendArrow = last.signal === "Buy" ? "📈" : "📉";
-                    const cardColor = last.confidence === 3 ? "#2a8f2a" :
-                                      last.confidence === 2 ? "#f0a500" :
-                                      "#d42a2a";
+        let html = "", missingFrames = [];
 
-                    html += `<div class="card" id="card-${tf}" style="background:${cardColor}">
-                                <h2>${tf}</h2>
-                                <p>Price: ${last.price}</p>
-                                <p>Signal: <span class="trend">${trendArrow} ${last.signal}</span></p>
-                                <p>Confidence: ${last.meter}</p>
-                                <p class="timer" id="timer-${tf}">Updated: 0s ago</p>
-                             </div>`;
-                }
-
-                dataDiv.innerHTML = html;
-
-                document.querySelectorAll('.card').forEach(card => {
-                    adjustTextColor(card, card.style.background);
-                });
-
-                if (missingFrames.length > 0) {
-                    errorDiv.innerHTML = `<p class="warning">Missing forecast data for: ${missingFrames.join(", ")}</p>`;
-                }
-
-            } catch (err) {
-                dataDiv.innerHTML = "<p>Unable to load forecast data.</p>";
-                errorDiv.innerText = "Fetch Error: " + err.message;
-                console.error(err);
+        TIMEFRAMES.forEach(tf=>{
+            const tfData = forecastData[tf];
+            if(!tfData || tfData.length===0){
+                missingFrames.push(tf);
+                html += `<div class="card" id="card-${tf}" style="background:#ffb200">
+                            <h2>${tf}</h2>
+                            <p>Data missing</p>
+                            <p class="timer" id="timer-${tf}">Updated: N/A</p>
+                            <p>Delay: <span class="tolerance" id="tolerance-${tf}">N/A</span></p>
+                         </div>`;
+                return;
             }
-        }
 
-        function updateTimers() {
-            if (!lastFetchTime) return;
-            const now = new Date();
-            const diffMs = now - lastFetchTime;
-            const diffSec = Math.floor(diffMs / 1000);
-            const diffMin = Math.floor(diffSec / 60);
-            const diffH = Math.floor(diffMin / 60);
+            const last = tfData[tfData.length-1];
+            const trendArrow = last.signal==="Buy"?"📈":last.signal==="Sell"?"📉":"➖";
+            const cardColor = last.confidence===3?"#2a8f2a":last.confidence===2?"#f0a500":"#d42a2a";
 
-            let timeText;
-            if (diffH > 0) timeText = `${diffH}h ${diffMin % 60}m ago`;
-            else if (diffMin > 0) timeText = `${diffMin}m ${diffSec % 60}s ago`;
-            else timeText = `${diffSec}s ago`;
+            // Check for new signal
+            const isNewSignal = prevSignals[tf]!==last.forecast_time;
+            prevSignals[tf]=last.forecast_time;
 
-            TIMEFRAMES.forEach(tf => {
-                const timerEl = document.getElementById(`timer-${tf}`);
-                if (timerEl) timerEl.innerText = `Updated: ${timeText}`;
-            });
-        }
+            html += `<div class="card" id="card-${tf}" style="background:${cardColor};${isNewSignal?'animation:flash 1s;':''}">
+                        <h2>${tf}</h2>
+                        <p>Last Close: ${last.price}</p>
+                        <p>Predicted: ${last.predicted_price}</p>
+                        <p>Signal: <span class="trend">${trendArrow} ${last.signal}</span></p>
+                        <p>Confidence: ${last.meter}</p>
+                        <p class="timer" id="timer-${tf}">Updated: 0s ago</p>
+                        <p>Delay: <span class="tolerance" id="tolerance-${tf}">0s</span></p>
+                     </div>`;
+        });
 
-        // Initial fetch
-        fetchForecast();
-        // Full forecast fetch every 1 minute 30 seconds
-        setInterval(fetchForecast, 90000);
-        // Timers update every 10 seconds
-        setInterval(updateTimers, 10000);
-    </script>
+        dataDiv.innerHTML = html;
+        document.querySelectorAll('.card').forEach(card=>adjustTextColor(card, card.style.background));
+
+        if(missingFrames.length>0)
+            errorDiv.innerHTML = `<p class="warning">Missing forecast data for: ${missingFrames.join(", ")}</p>`;
+
+    }catch(err){
+        dataDiv.innerHTML="<p>Unable to load forecast data.</p>";
+        errorDiv.innerText="Fetch Error: "+err.message;
+        console.error(err);
+    }
+}
+
+// Update timers and tolerance
+function updateTimers(){
+    TIMEFRAMES.forEach(tf=>{
+        const tfData = forecastData[tf];
+        if(!tfData||tfData.length===0) return;
+        const last = tfData[tfData.length-1];
+        const timerEl=document.getElementById(`timer-${tf}`);
+        const toleranceEl=document.getElementById(`tolerance-${tf}`);
+        if(timerEl && last.forecast_time) timerEl.innerText=`Updated: ${timeAgo(last.forecast_time)}`;
+        if(toleranceEl && last.candle_time) toleranceEl.innerText=calculateTolerance(last.candle_time);
+    });
+}
+
+// Flash animation for new signals
+const style=document.createElement('style');
+style.innerHTML=`@keyframes flash{0%{box-shadow:0 0 20px #fff}50%{box-shadow:0 0 20px #00ff00}100%{box-shadow:0 0 20px #fff}}`;
+document.head.appendChild(style);
+
+// Initial fetch
+fetchForecast();
+setInterval(fetchForecast,60000); // 1 minute update
+setInterval(updateTimers,10000); // 10 second timer update
+</script>
 </body>
 </html>
